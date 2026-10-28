@@ -7,6 +7,7 @@ n8n (Google Sheets / Supabase node) -> HTTP Request node -> POST /webhook/regres
 Optionally pass `callback_url` (an n8n Webhook node URL) to run asynchronously:
 the server replies 202 immediately and POSTs the result to that URL when done.
 """
+import hmac
 import logging
 import math
 import os
@@ -32,7 +33,7 @@ from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, StandardSca
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("regression-server")
 
-API_KEY = os.getenv("API_KEY")  # optional; if set, clients must send X-API-Key
+API_KEY = (os.getenv("API_KEY") or "").strip() or None  # optional; if set, clients must send X-API-Key
 MIN_ROWS = 5
 
 app = FastAPI(title="n8n Regression Server", version="1.0.0")
@@ -42,8 +43,13 @@ app = FastAPI(title="n8n Regression Server", version="1.0.0")
 # Auth
 # --------------------------------------------------------------------------- #
 def check_key(x_api_key: Optional[str] = Header(default=None)) -> None:
-    if API_KEY and x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
+    if not API_KEY:
+        return
+    if x_api_key is None:
+        raise HTTPException(status_code=401, detail="Missing X-API-Key header (no header with that name was received)")
+    received = x_api_key.strip()  # tolerate stray spaces / line breaks
+    if not hmac.compare_digest(received.encode(), API_KEY.encode()):
+        raise HTTPException(status_code=401, detail=f"Invalid X-API-Key (received {len(received)} characters)")
 
 
 # --------------------------------------------------------------------------- #
